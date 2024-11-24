@@ -1,170 +1,140 @@
-#include "game.h"
-#include <cstdlib> // For random number generation
+#include "Game.h"
+#include <QPainter>
+#include <QMouseEvent>
+#include <QTimer>
 
-Game::Game(QWidget *parent) : QMainWindow(parent), world(nullptr) {
-    setFixedSize(800, 600);
+// Constructor: Initializes the Box2D world and game objects
+Game::Game(QWidget *parent)
+    : QWidget(parent),
+    world(b2Vec2(0.0f, -10.0f)),  // Initialize the Box2D world with gravity (-10 m/s²)
+    throwableBody(nullptr),
+    groundBody(nullptr),
+    isDragging(false) {
 
-    // Create the physics world
-    b2Vec2 gravity(0.0f, -10.0f); // Gravity pulling downward
-    world = new b2World(gravity);
+    // Create the ground object
+    createGround();
 
-    setupWorld();
+    // Create the throwable object (e.g., a ball)
+    createThrowableBody();
 
-    // Timer for updating the game
-    timer = new QTimer(this);
-    connect(timer, &QTimer::timeout, this, &Game::updateGame);
-    timer->start(16); // ~60 FPS
+    // Timer to update the physics simulation at ~60 FPS
+    QTimer *timer = new QTimer(this);
+    connect(timer, &QTimer::timeout, this, [this]() {
+        if (!isDragging) {  // Only update the physics when the object is not being dragged
+            world.Step(1.0f / 60.0f, 6, 2);  // Step the physics simulation forward by 1/60th of a second
+            update();  // Request the widget to redraw itself
+        }
+    });
+    timer->start(16);  // 16 milliseconds per update (60 FPS)
 }
 
-Game::~Game() {
-    delete world;
-}
+// Creates the static ground object
+void Game::createGround() {
+    // Define the ground body
+    b2BodyDef groundBodyDef;
+    groundBodyDef.position.Set(0.0f, 0.0f);  // Ground is located at the bottom of the world
+    groundBody = world.CreateBody(&groundBodyDef);  // Add the ground to the Box2D world
 
-void Game::setupWorld() {
-    // Create water boundary (floor)
-    b2BodyDef groundDef;
-    groundDef.position.Set(0.0f, 0.0f); // At y = 0
-    b2Body *ground = world->CreateBody(&groundDef);
-
+    // Define the shape of the ground as a straight edge
     b2EdgeShape groundShape;
-    groundShape.Set(b2Vec2(0.0f, 0.0f), b2Vec2(20.0f, 0.0f)); // Horizontal line
+    groundShape.Set(b2Vec2(0.0f, 0.0f), b2Vec2(25.0f, 0.0f));  // 25 meters wide
 
-    b2FixtureDef groundFixture;
-    groundFixture.shape = &groundShape;
-    groundFixture.friction = 0.5f;
-    ground->CreateFixture(&groundFixture);
-
-    createBoat();
-    createFishingLine();
-    createFish();
+    // Attach the shape to the ground body
+    groundBody->CreateFixture(&groundShape, 0.0f);  // 0.0f means no density (static object)
 }
 
-void Game::createBoat() {
-    b2BodyDef boatDef;
-    boatDef.type = b2_kinematicBody;
-    boatDef.position.Set(10.0f, 6.0f); // Align with the water surface
-    boat = world->CreateBody(&boatDef);
+// Creates the throwable object (e.g., a ball)
+void Game::createThrowableBody() {
+    // Define the throwable object's body
+    b2BodyDef bodyDef;
+    bodyDef.type = b2_dynamicBody;  // Dynamic body can move and be affected by forces
+    bodyDef.position.Set(5.0f, 10.0f);  // Initial position (5 meters right, 10 meters up)
+    throwableBody = world.CreateBody(&bodyDef);  // Add the body to the Box2D world
 
-    b2PolygonShape boatShape;
-    boatShape.SetAsBox(1.0f, 0.5f);
+    // Define the shape of the throwable object as a circle
+    b2CircleShape shape;
+    shape.m_radius = 0.5f;  // Radius of 0.5 meters
 
-    b2FixtureDef boatFixture;
-    boatFixture.shape = &boatShape;
-    boatFixture.density = 1.0f;
-    boatFixture.friction = 0.3f;
-    boat->CreateFixture(&boatFixture);
+    // Create a fixture to define the object's physical properties
+    b2FixtureDef fixtureDef;
+    fixtureDef.shape = &shape;
+    fixtureDef.density = 1.0f;  // Density affects mass
+    fixtureDef.friction = 0.3f;  // Friction affects sliding
+    fixtureDef.restitution = 0.5f;  // Restitution affects bounciness
+    throwableBody->CreateFixture(&fixtureDef);  // Attach the fixture to the body
 }
 
-void Game::createFishingLine() {
-    b2BodyDef lineDef;
-    lineDef.type = b2_kinematicBody;
-    lineDef.position.Set(10.0f, 5.5f); // Start below the boat
-    fishingLine = world->CreateBody(&lineDef);
+// Handles the rendering of the game
+void Game::paintEvent(QPaintEvent *event) {
+    Q_UNUSED(event);  // Ignore the unused parameter
 
-    b2PolygonShape lineShape;
-    lineShape.SetAsBox(0.1f, 2.0f); // Thin vertical line
+    QPainter painter(this);  // Create a QPainter for drawing
+    painter.setRenderHint(QPainter::Antialiasing);  // Enable smooth rendering
 
-    b2FixtureDef lineFixture;
-    lineFixture.shape = &lineShape;
-    lineFixture.density = 1.0f;
-    fishingLine->CreateFixture(&lineFixture);
-}
+    float scale = 30.0f;  // Convert Box2D meters to pixels (1 meter = 30 pixels)
 
-void Game::createFish() {
-    for (int i = 0; i < 5; ++i) {
-        b2BodyDef fishDef;
-        fishDef.type = b2_dynamicBody;
-        fishDef.position.Set(2.0f + i * 3.0f, 4.0f); // Start in the middle of the water
-        fishDef.gravityScale = 0.0f; // Disable gravity for fish
-        b2Body *fish = world->CreateBody(&fishDef);
+    // === DRAW THE GROUND ===
+    painter.setPen(QPen(Qt::green, 3));  // Green line with thickness 3
+    painter.drawLine(
+        0, height() - 0.0f * scale,  // Starting point (left side of screen)
+        width(), height() - 0.0f * scale  // Ending point (right side of screen)
+        );
 
-        b2CircleShape fishShape;
-        fishShape.m_radius = 0.5f;
+    // === DRAW THE THROWABLE OBJECT ===
+    b2Vec2 position = throwableBody->GetPosition();  // Get the position from Box2D
+    float radius = 0.5f * scale;  // Convert radius from meters to pixels
+    painter.setBrush(Qt::blue);  // Fill the object with blue color
+    painter.drawEllipse(
+        QPointF(position.x * scale, height() - position.y * scale),  // Center of the circle
+        radius, radius  // Radii of the circle
+        );
 
-        b2FixtureDef fishFixture;
-        fishFixture.shape = &fishShape;
-        fishFixture.density = 1.0f;
-        fishFixture.friction = 0.3f;
-        fish->CreateFixture(&fishFixture);
-
-        fish->SetLinearDamping(0.5f); // Simulate water resistance
-        fishBodies.push_back(fish);
-    }
-}
-
-void Game::updateGame() {
-    world->Step(1.0f / 60.0f, 8, 3); // Step the physics simulation
-
-    // Attach the fishing line to the boat
-    b2Vec2 boatPos = boat->GetPosition();
-    b2Vec2 linePos = fishingLine->GetPosition();
-    fishingLine->SetTransform(b2Vec2(boatPos.x, linePos.y), 0.0f);
-
-    // Limit fishing line movement
-    if (linePos.y > 6.0f) {
-        fishingLine->SetLinearVelocity(b2Vec2(0, 0)); // Stop at upper limit
-    } else if (linePos.y < 1.0f) {
-        fishingLine->SetLinearVelocity(b2Vec2(0, 0)); // Stop at lower limit
-    }
-
-    // Move fish randomly and keep them within bounds
-    for (b2Body *fish : fishBodies) {
-        float randomForceX = (rand() % 20 - 10) / 10.0f; // Random horizontal force
-        fish->ApplyForceToCenter(b2Vec2(randomForceX, 0), true);
-
-        // Keep fish within bounds
-        b2Vec2 fishPos = fish->GetPosition();
-        if (fishPos.x < 1.0f || fishPos.x > 19.0f) {
-            fish->SetLinearVelocity(b2Vec2(-fish->GetLinearVelocity().x, fish->GetLinearVelocity().y));
+    // === DRAW THE TRAJECTORY (IF DRAGGING) ===
+    if (isDragging) {
+        painter.setPen(QPen(Qt::red, 2));  // Red line with thickness 2
+        for (int i = 0; i < 180; ++i) {  // Predict the trajectory for 3 seconds (180 steps)
+            b2Vec2 trajectoryPoint = getTrajectoryPoint(startingPosition, initialVelocity, i);
+            float x = trajectoryPoint.x * scale;  // Convert X-coordinate to pixels
+            float y = height() - trajectoryPoint.y * scale;  // Convert Y-coordinate to pixels
+            painter.drawPoint(QPointF(x, y));  // Draw a red point at the trajectory position
         }
     }
-
-    update(); // Trigger Qt repaint
 }
 
-void Game::paintEvent(QPaintEvent *event) {
-    QPainter painter(this);
-
-    // Draw water
-    painter.setBrush(Qt::blue);
-    painter.drawRect(0, height() / 2, width(), height() / 2);
-
-    // Draw boat
-    b2Vec2 boatPos = boat->GetPosition();
-    painter.setBrush(Qt::red);
-    painter.drawRect(boatPos.x * SCALE - 50, height() - (boatPos.y * SCALE) - 25, 100, 50);
-
-    // Draw fishing line
-    b2Vec2 linePos = fishingLine->GetPosition();
-    painter.setBrush(Qt::black);
-    painter.drawRect(linePos.x * SCALE - 5, height() - (linePos.y * SCALE), 10, 200);
-
-    // Draw fish
-    painter.setBrush(Qt::green);
-    for (b2Body *fish : fishBodies) {
-        b2Vec2 fishPos = fish->GetPosition();
-        painter.drawEllipse(fishPos.x * SCALE - 25, height() - (fishPos.y * SCALE) - 25, 50, 50);
-    }
-}
-
-void Game::keyPressEvent(QKeyEvent *event) {
-    if (event->key() == Qt::Key_Left) {
-        boat->SetLinearVelocity(b2Vec2(-5, 0)); // Move left
-    } else if (event->key() == Qt::Key_Right) {
-        boat->SetLinearVelocity(b2Vec2(5, 0)); // Move right
-    }
-}
-
-void Game::keyReleaseEvent(QKeyEvent *event) {
-    if (event->key() == Qt::Key_Left || event->key() == Qt::Key_Right) {
-        boat->SetLinearVelocity(b2Vec2(0, 0)); // Stop movement
-    }
-}
-
+// Handles mouse press events
 void Game::mousePressEvent(QMouseEvent *event) {
-    if (event->button() == Qt::LeftButton) {
-        fishingLine->SetLinearVelocity(b2Vec2(0, -2)); // Retract line
-    } else if (event->button() == Qt::RightButton) {
-        fishingLine->SetLinearVelocity(b2Vec2(0, 2)); // Extend line
+    float scale = 30.0f;  // Convert pixels to Box2D meters
+    dragStart.Set(event->pos().x() / scale, (height() - event->pos().y()) / scale);  // Record drag start position
+    startingPosition = throwableBody->GetPosition();  // Record the current position of the object
+    isDragging = true;  // Start dragging
+}
+
+// Handles mouse move events
+void Game::mouseMoveEvent(QMouseEvent *event) {
+    if (isDragging) {
+        float scale = 30.0f;  // Convert pixels to Box2D meters
+        dragEnd.Set(event->pos().x() / scale, (height() - event->pos().y()) / scale);  // Record drag end position
+        initialVelocity = 10.0f * (dragEnd - dragStart);  // Calculate velocity based on drag
+        update();  // Redraw the widget to update the trajectory
     }
+}
+
+// Handles mouse release events
+void Game::mouseReleaseEvent(QMouseEvent *event) {
+    Q_UNUSED(event);  // Ignore the unused parameter
+
+    if (isDragging) {
+        isDragging = false;  // Stop dragging
+        throwableBody->SetLinearVelocity(initialVelocity);  // Apply the calculated velocity to the object
+        dragStart.SetZero();  // Reset drag start
+        dragEnd.SetZero();  // Reset drag end
+    }
+}
+
+// Calculates the position of the object at a future time step
+b2Vec2 Game::getTrajectoryPoint(const b2Vec2& startPos, const b2Vec2& startVel, float step) const {
+    float t = 1.0f / 60.0f;  // Time step (60 FPS)
+    b2Vec2 stepVelocity = t * startVel;  // Velocity at each time step
+    b2Vec2 stepGravity = t * t * world.GetGravity();  //
+    return startPos + step * stepVelocity + 0.5f * (step * step + step) * stepGravity;  // Position formula
 }
