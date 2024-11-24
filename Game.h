@@ -6,10 +6,13 @@
 
 // The Game class handles the physics simulation and rendering of the game.
 class Game : public QWidget {
-    Q_OBJECT  // Required macro for Qt objects
+    Q_OBJECT
 
 public:
     explicit Game(QWidget *parent = nullptr);  // Constructor
+
+    // Setter function to modify the ball's starting position
+    void setBallStartPosition(float x, float y);
 
 protected:
     // Qt event to handle rendering

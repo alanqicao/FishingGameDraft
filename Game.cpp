@@ -17,6 +17,9 @@ Game::Game(QWidget *parent)
     // Create the throwable object (e.g., a ball)
     createThrowableBody();
 
+    // Set the ball's initial position (hardcoded for now)
+    setBallStartPosition(10.0f, 5.0f);  // Start at (10 meters right, 5 meters up)
+
     // Timer to update the physics simulation at ~60 FPS
     QTimer *timer = new QTimer(this);
     connect(timer, &QTimer::timeout, this, [this]() {
@@ -47,8 +50,8 @@ void Game::createGround() {
 void Game::createThrowableBody() {
     // Define the throwable object's body
     b2BodyDef bodyDef;
-    bodyDef.type = b2_dynamicBody;  // Dynamic body can move and be affected by forces
-    bodyDef.position.Set(5.0f, 10.0f);  // Initial position (5 meters right, 10 meters up)
+    bodyDef.type = b2_kinematicBody;  // Initially kinematic to prevent free-fall
+    bodyDef.position.Set(0.0f, 0.0f);  // Default initial position
     throwableBody = world.CreateBody(&bodyDef);  // Add the body to the Box2D world
 
     // Define the shape of the throwable object as a circle
@@ -62,6 +65,12 @@ void Game::createThrowableBody() {
     fixtureDef.friction = 0.3f;  // Friction affects sliding
     fixtureDef.restitution = 0.5f;  // Restitution affects bounciness
     throwableBody->CreateFixture(&fixtureDef);  // Attach the fixture to the body
+}
+
+// Function to set the ball's starting position
+void Game::setBallStartPosition(float x, float y) {
+    throwableBody->SetTransform(b2Vec2(x, y), 0.0f);  // Move the ball to the new position
+    startingPosition.Set(x, y);  // Update the starting position
 }
 
 // Handles the rendering of the game
@@ -125,6 +134,7 @@ void Game::mouseReleaseEvent(QMouseEvent *event) {
 
     if (isDragging) {
         isDragging = false;  // Stop dragging
+        throwableBody->SetType(b2_dynamicBody);  // Change the body type to dynamic (affected by gravity)
         throwableBody->SetLinearVelocity(initialVelocity);  // Apply the calculated velocity to the object
         dragStart.SetZero();  // Reset drag start
         dragEnd.SetZero();  // Reset drag end
@@ -135,6 +145,6 @@ void Game::mouseReleaseEvent(QMouseEvent *event) {
 b2Vec2 Game::getTrajectoryPoint(const b2Vec2& startPos, const b2Vec2& startVel, float step) const {
     float t = 1.0f / 60.0f;  // Time step (60 FPS)
     b2Vec2 stepVelocity = t * startVel;  // Velocity at each time step
-    b2Vec2 stepGravity = t * t * world.GetGravity();  //
+    b2Vec2 stepGravity = t * t * world.GetGravity();  // Gravity effect at each step
     return startPos + step * stepVelocity + 0.5f * (step * step + step) * stepGravity;  // Position formula
 }
