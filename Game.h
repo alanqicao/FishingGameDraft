@@ -14,6 +14,9 @@ public:
     // Setter function to modify the ball's starting position
     void setBallStartPosition(float x, float y);
 
+    // Setter function to modify the ground's position
+    void setGroundPosition(float x1, float y1, float x2, float y2);
+
 protected:
     // Qt event to handle rendering
     void paintEvent(QPaintEvent *event) override;
@@ -36,7 +39,7 @@ private:
     bool isDragging;  // Flag to check if the user is currently dragging
 
     void createThrowableBody();  // Function to create the throwable object
-    void createGround();  // Function to create the static ground
+    void createGround(float x1, float y1, float x2, float y2);  // Function to create the static ground
     b2Vec2 getTrajectoryPoint(const b2Vec2& startPos, const b2Vec2& startVel, float step) const;
     // Helper function to calculate the trajectory points
 };
