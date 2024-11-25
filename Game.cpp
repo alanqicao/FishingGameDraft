@@ -13,7 +13,8 @@ Game::Game(QWidget *parent)
     groundBody(nullptr),
     isDragging(false),
     waterLevel(7.0f),  // Water level set to Y = 7.0
-    targetDepth(3.0f){
+    targetDepth(3.0f),
+    isInWater(false){
 
     // Load the ball image
     if (!ballImage.load(":/new/prefix1/image/Jig.png")) {  // Replace with your actual image path
