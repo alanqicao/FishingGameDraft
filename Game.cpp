@@ -2,6 +2,8 @@
 #include <QPainter>
 #include <QMouseEvent>
 #include <QTimer>
+#include <QPainterPath>
+#include <cmath>
 
 // Constructor: Initializes the Box2D world and game objects
 Game::Game(QWidget *parent)
@@ -9,10 +11,18 @@ Game::Game(QWidget *parent)
     world(b2Vec2(0.0f, -10.0f)),  // Initialize the Box2D world with gravity (-10 m/s²)
     throwableBody(nullptr),
     groundBody(nullptr),
-    isDragging(false) {
+    isDragging(false),
+    waterLevel(7.0f),  // Water level set to Y = 7.0
+    targetDepth(3.0f){
+
+    // Load the ball image
+    if (!ballImage.load(":/new/prefix1/image/Jig.png")) {  // Replace with your actual image path
+        qDebug() << "Failed to load ball image!";
+    }
+
 
     // Create the ground object with default values
-    createGround(0.0f, 5.0f, 25.0f, 5.0f);
+    createGround(0.0f, 0.0f, 25.0f, 0.0f);
 
     // Create the throwable object (e.g., a ball)
     createThrowableBody();
@@ -25,11 +35,66 @@ Game::Game(QWidget *parent)
     connect(timer, &QTimer::timeout, this, [this]() {
         if (!isDragging) {  // Only update the physics when the object is not being dragged
             world.Step(1.0f / 60.0f, 6, 2);  // Step the physics simulation forward by 1/60th of a second
+            updateLureInWater();  // Stop the lure at the target depth
             update();  // Request the widget to redraw itself
         }
     });
     timer->start(16);  // 16 milliseconds per update (60 FPS)
 }
+
+// === Water Resistance, Target Depth, and Detection ===
+void Game::updateLureInWater() {
+    b2Vec2 position = throwableBody->GetPosition();
+
+    // Detect when the lure enters or exits the water
+    if (position.y <= waterLevel && !isInWater) {
+        isInWater = true;  // Mark the lure as in water
+        qDebug() << "Lure hit the water!";
+    } else if (position.y > waterLevel && isInWater) {
+        isInWater = false;  // Mark the lure as out of water
+        qDebug() << "Lure exited the water!";
+    }
+
+    // Apply water resistance if the lure is in water
+    if (isInWater) {
+        applyWaterResistance();
+
+        // Stop the lure if it reaches the target depth
+        if (position.y <= waterLevel - targetDepth) {
+            stopLureAtDepth();
+        }
+    }
+}
+
+void Game::applyWaterResistance() {
+    b2Vec2 velocity = throwableBody->GetLinearVelocity();
+
+    // Apply different damping factors for horizontal and vertical motion
+    float horizontalDamping = 0.9f;  // Slow down horizontal motion slightly
+    float verticalDamping = 0.7f;    // Stronger damping for vertical motion
+
+    b2Vec2 waterDampedVelocity(
+        velocity.x * horizontalDamping,  // Reduce horizontal velocity
+        velocity.y * verticalDamping     // Reduce vertical velocity
+        );
+
+    // Apply the new velocity to the lure
+    throwableBody->SetLinearVelocity(waterDampedVelocity);
+
+    // Optionally reduce angular velocity (spinning effect)
+    float angularDamping = 0.8f;  // Damping for rotational motion
+    float newAngularVelocity = throwableBody->GetAngularVelocity() * angularDamping;
+    throwableBody->SetAngularVelocity(newAngularVelocity);
+}
+
+void Game::stopLureAtDepth() {
+    // Stop the lure's motion
+    throwableBody->SetLinearVelocity(b2Vec2(0.0f, 0.0f));
+    throwableBody->SetAngularVelocity(0.0f);  // Stop spinning
+    throwableBody->SetGravityScale(0.0f);     // Neutralize gravity to keep it at the target depth
+    //qDebug() << "Lure stopped at target depth!";
+}
+
 
 // === Mouse Events ===
 
@@ -92,9 +157,9 @@ void Game::setGroundPosition(float x1, float y1, float x2, float y2) {
     createGround(x1, y1, x2, y2);  // Recreate the ground with new positions
 }
 
-// === Ball Position Handling ===
+// === Lure Position Handling ===
 
-// Creates the throwable object (e.g., a ball)
+// Creates the throwable object (e.g., a Lure)
 void Game::createThrowableBody() {
     // Define the throwable object's body
     b2BodyDef bodyDef;
@@ -102,20 +167,21 @@ void Game::createThrowableBody() {
     bodyDef.position.Set(0.0f, 0.0f);  // Default initial position
     throwableBody = world.CreateBody(&bodyDef);  // Add the body to the Box2D world
 
-    // Define the shape of the throwable object as a circle
-    b2CircleShape shape;
-    shape.m_radius = 0.5f;  // Radius of 0.5 meters
+    // Define the shape of the throwable object as a rectangle
+    b2PolygonShape shape;
+    shape.SetAsBox(0.5f, 0.25f);  // Half-width = 0.5m, Half-height = 0.25m
+
 
     // Create a fixture to define the object's physical properties
     b2FixtureDef fixtureDef;
     fixtureDef.shape = &shape;
-    fixtureDef.density = 1.0f;  // Density affects mass
-    fixtureDef.friction = 0.3f;  // Friction affects sliding
-    fixtureDef.restitution = 0.5f;  // Restitution affects bounciness
+    fixtureDef.density = 1.2f;  // Density affects mass  Heavier objects (higher density)
+    fixtureDef.friction = 0.6f;  // Friction affects sliding
+    fixtureDef.restitution = 0.2f;  // Restitution affects bounciness
     throwableBody->CreateFixture(&fixtureDef);  // Attach the fixture to the body
 }
 
-// Function to set the ball's starting position
+// Function to set the Lure's starting position
 void Game::setBallStartPosition(float x, float y) {
     throwableBody->SetTransform(b2Vec2(x, y), 0.0f);  // Move the ball to the new position
     startingPosition.Set(x, y);  // Update the starting position
@@ -143,6 +209,49 @@ void Game::paintEvent(QPaintEvent *event) {
 
     float scale = 30.0f;  // Convert Box2D meters to pixels (1 meter = 30 pixels)
 
+    // === DRAW THE WATER LINE ===
+    painter.setPen(QPen(Qt::blue, 3));  // Blue line for water
+    float waterLineY = height() - waterLevel * scale;  // Convert water level to screen Y-coordinate
+    painter.drawLine(0, waterLineY, width(), waterLineY);
+
+    // === DRAW THE FISHING LINE (DYNAMIC TENSION) ===
+    painter.setPen(QPen(Qt::black, 2));  // Black line with thickness 2
+
+    // Get the start and end points of the fishing line
+    QPointF startPoint(
+        startingPosition.x * scale,
+        height() - startingPosition.y * scale
+        );
+    b2Vec2 lurePosition = throwableBody->GetPosition();
+    QPointF endPoint(
+        lurePosition.x * scale,
+        height() - lurePosition.y * scale
+        );
+
+    // Calculate the distance between start and end points
+    float distance = std::hypot(endPoint.x() - startPoint.x(), endPoint.y() - startPoint.y());
+
+    // Adjust sag based on distance and velocity
+    float maxSag = 50.0f;          // Maximum sag (pixels)
+    float sagDivider = 5.0f;       // Controls how quickly sag increases with distance
+    float sagFactor = std::min(maxSag, distance / sagDivider);
+
+    float maxSpeed = 10.0f;        // Speed at which the line becomes completely taut
+    float lureSpeed = throwableBody->GetLinearVelocity().Length();  // Lure's velocity
+    float velocityFactor = std::max(0.1f, 1.0f - lureSpeed / maxSpeed);  // Scale sag by velocity
+    float dynamicSag = sagFactor * velocityFactor;
+
+    // Control point for bezier curve
+    QPointF controlPoint(
+        (startPoint.x() + endPoint.x()) / 2,           // Midpoint X
+        (startPoint.y() + endPoint.y()) / 2 + dynamicSag  // Midpoint Y with sag
+        );
+
+    // Create a path for the curve
+    QPainterPath path(startPoint);
+    path.quadTo(controlPoint, endPoint);  // Add a quadratic bezier curve
+    painter.drawPath(path);  // Draw the fishing line
+
     // === DRAW THE GROUND ===
     painter.setPen(QPen(Qt::green, 3));  // Green line with thickness 3
 
@@ -163,14 +272,23 @@ void Game::paintEvent(QPaintEvent *event) {
         }
     }
 
-    // === DRAW THE THROWABLE OBJECT ===
+    // === DRAW THE Lure OBJECT ===
     b2Vec2 position = throwableBody->GetPosition();  // Get the position from Box2D
-    float radius = 0.5f * scale;  // Convert radius from meters to pixels
-    painter.setBrush(Qt::blue);  // Fill the object with blue color
-    painter.drawEllipse(
-        QPointF(position.x * scale, height() - position.y * scale),  // Center of the circle
-        radius, radius  // Radii of the circle
+    float rectWidth  = 1.0f * scale;  // Width of the rectangle in pixels (2x half-width)
+    float rectHeight  = 0.5f * scale;  // Height of the rectangle in pixels (2x half-height)
+
+    // Calculate the top-left corner of the rectangle
+    QPointF topLeft(
+        position.x * scale - rectWidth / 2,  // X coordinate of the top-left corner
+        height() - position.y * scale - rectHeight / 2  // Y coordinate of the top-left corner
         );
+
+    // Draw the rectangle image, scaling it to match the rectangle's size
+    painter.drawPixmap(
+        QRectF(topLeft, QSizeF(rectWidth, rectHeight)).toRect(),  // Convert QRectF to QRect
+        ballImage  // Source image
+        );
+
 
     // === DRAW THE TRAJECTORY (IF DRAGGING) ===
     if (isDragging) {

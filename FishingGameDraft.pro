@@ -136,3 +136,6 @@ DISTFILES += \
     Box2D/Dynamics/Joints/Icon_ \
     Box2D/Icon_ \
     Box2D/Rope/Icon_
+
+RESOURCES += \
+    Resource.qrc

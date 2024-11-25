@@ -3,6 +3,7 @@
 
 #include <QWidget>
 #include <Box2D/Box2D.h>
+#include <QPixmap>
 
 // The Game class handles the physics simulation and rendering of the game.
 class Game : public QWidget {
@@ -35,6 +36,7 @@ private:
     b2Vec2 initialVelocity;  // Initial velocity when the object is thrown
     b2Vec2 dragStart;  // Starting point of the drag (mouse press)
     b2Vec2 dragEnd;  // Ending point of the drag (mouse release)
+    QPixmap ballImage;  // Image to represent the ball
 
     bool isDragging;  // Flag to check if the user is currently dragging
 
@@ -42,6 +44,14 @@ private:
     void createGround(float x1, float y1, float x2, float y2);  // Function to create the static ground
     b2Vec2 getTrajectoryPoint(const b2Vec2& startPos, const b2Vec2& startVel, float step) const;
     // Helper function to calculate the trajectory points
+
+    std::vector<b2Vec2> trajectoryPoints;  // Store trajectory points
+    float   waterLevel; // Water level
+    float targetDepth;  // Target depth where the lure will stop
+    void updateLureInWater(); //Water Resistance
+    void applyWaterResistance();
+    void stopLureAtDepth();
+    bool isInWater;
 };
 
 #endif // GAME_H
